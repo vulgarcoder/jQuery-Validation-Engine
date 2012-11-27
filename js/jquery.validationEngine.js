@@ -564,6 +564,8 @@
 						break;
 					case "custom":
 						errorMsg = methods._getErrorMessage(form, field, rules[i], rules, i, options, methods._custom);
+						// don't eat the errorMsg, sometimes the filed's value is empty.
+						if(errorMsg)  required = true;
 						break;
 					case "groupRequired":
 						// Check is its the first of group, if not, reload validation with first field
