@@ -12,28 +12,28 @@
  */
  (function($) {
 
-	 "use strict";
+	"use strict";
 
-	 var methods = {
+	var methods = {
 
-		 /**
-		 * Kind of the constructor, called before any action
-		 * @param {Map} user options
-		 */
-		 init: function(options) {
-			 var form = this;
-			 if (!form.data('jqv') || form.data('jqv') == null ) {
-				 options = methods._saveOptions(form, options);
-				 // bind all formError elements to close on click
-				 $(".formError").live("click", function() {
-					 $(this).fadeOut(150, function() {
-						 // remove prompt once invisible
-						 $(this).parent('.formErrorOuter').remove();
-						 $(this).remove();
-					 });
-				 });
-			 }
-			 return this;
+		/**
+		* Kind of the constructor, called before any action
+		* @param {Map} user options
+		*/
+		init: function(options) {
+			var form = this;
+			if (!form.data('jqv') || form.data('jqv') == null ) {
+				options = methods._saveOptions(form, options);
+				// bind all formError elements to close on click
+				$(document).on("click", ".formError", function() {
+					$(this).fadeOut(150, function() {
+						// remove prompt once invisible
+						$(this).parent('.formErrorOuter').remove();
+						$(this).remove();
+					});
+				});
+			}
+			return this;
 		 },
 		/**
 		* Attachs jQuery.validationEngine to form.submit and field.blur events
@@ -84,17 +84,14 @@
 			form.find("["+options.validateAttribute+"*=validate][type=checkbox],[class*=validate][type=radio]").off("click", methods._onFieldEvent);
 
 			// unbind form.submit
-			form.off("submit", methods.onAjaxFormComplete);
-
-			// unbind form.submit
-			form.die("submit", methods.onAjaxFormComplete);
+			form.off("submit", methods._onSubmitEvent);
 			form.removeData('jqv');
             
 			form.off("click", "a[data-validation-engine-skip], a[class*='validate-skip'], button[data-validation-engine-skip], button[class*='validate-skip'], input[data-validation-engine-skip], input[class*='validate-skip']", methods._submitButtonClick);
 			form.removeData('jqv_submitButton');
 
 			if (options.autoPositionUpdate)
-				$(window).unbind("resize", methods.updatePromptsPosition);
+				$(window).off("resize", methods.updatePromptsPosition);
 
 			return this;
 		},
@@ -108,19 +105,25 @@
 			var element = $(this);
 			var valid = null;
 
-			if((element.is("form") || element.hasClass("validationEngineContainer")) && !element.hasClass('validating')) {
-				element.addClass('validating');
-				var options = element.data('jqv');
-				var valid = methods._validateFields(this);
-				
-				// If the form doesn't validate, clear the 'validating' class before the user has a chance to submit again
-				setTimeout(function(){
-					element.removeClass('validating');
-				}, 100);
-				if (valid && options.onSuccess) {
-					options.onSuccess();
-				} else if (!valid && options.onFailure) {
-					options.onFailure();
+			if (element.is("form") || element.hasClass("validationEngineContainer")) {
+				if (element.hasClass('validating')) {
+					// form is already validating.
+					// Should abort old validation and start new one. I don't know how to implement it.
+					return false;
+				} else {				
+					element.addClass('validating');
+					var options = element.data('jqv');
+					var valid = methods._validateFields(this);
+
+					// If the form doesn't validate, clear the 'validating' class before the user has a chance to submit again
+					setTimeout(function(){
+						element.removeClass('validating');
+					}, 100);
+					if (valid && options.onSuccess) {
+						options.onSuccess();
+					} else if (!valid && options.onFailure) {
+						options.onFailure();
+					}
 				}
 			} else if (element.is('form') || element.hasClass('validationEngineContainer')) {
 				element.removeClass('validating');
@@ -216,8 +219,8 @@
 
 			 var form = this;
 			 var options = form.data('jqv');
-			 var duration = options ? options.fadeDuration:0.3;
-			 $('.formError').fadeTo(duration, 0.3, function() {
+			 var duration = options ? options.fadeDuration:300;
+			 $('.formError').fadeTo(duration, 300, function() {
 				 $(this).parent('.formErrorOuter').remove();
 				 $(this).remove();
 			 });
@@ -336,9 +339,18 @@
 					errorFound |= methods._validateField(field, options);
 					if (errorFound && first_err==null)
 						if (field.is(":hidden") && options.prettySelect)
-										 first_err = field = form.find("#" + options.usePrefix + methods._jqSelector(field.attr('id')) + options.useSuffix);
-									else
-										 first_err=field;
+							first_err = field = form.find("#" + options.usePrefix + methods._jqSelector(field.attr('id')) + options.useSuffix);
+						else {
+
+							//Check if we need to adjust what element to show the prompt on
+							//and and such scroll to instead
+							if(field.data('jqv-prompt-at') instanceof jQuery ){
+								field = field.data('jqv-prompt-at');
+							} else if(field.data('jqv-prompt-at')) {
+								field = $(field.data('jqv-prompt-at'));
+							}
+							first_err=field;
+						}
 					if (options.doNotShowAllErrosOnSubmit)
 						return false;
 					names.push(field.attr('name'));
@@ -505,7 +517,7 @@
 				++$.validationEngine.fieldIdCounter;
 			}
 
-			if (field.is(":hidden") && !options.prettySelect || field.parent().is(":hidden"))
+           if (!options.validateNonVisibleFields && (field.is(":hidden") && !options.prettySelect || field.parent().is(":hidden")))
 				return false;
 
 			var rulesParsing = field.attr(options.validateAttribute);
@@ -820,7 +832,7 @@
 		 },
 		 _getCustomErrorMessage:function (field, classes, rule, options) {
 			var custom_message = false;
-			var validityProp = methods._validityProp[rule];
+			var validityProp = /^custom\[.*\]$/.test(rule) ? methods._validityProp["custom"] : methods._validityProp[rule];
 			 // If there is a validityProp for this rule, check to see if the field has an attribute for it
 			if (validityProp != undefined) {
 				custom_message = field.attr("data-errormessage-"+validityProp);
@@ -895,8 +907,16 @@
 				case "select-one":
 				case "select-multiple":
 				default:
-					if (! $.trim(field.val()) && ((field.val() != field.attr("data-validation-placeholder")) || (field.val() !== field.attr("placeholder"))))
+					var field_val      = $.trim( field.val()                               );
+					var dv_placeholder = $.trim( field.attr("data-validation-placeholder") );
+					var placeholder    = $.trim( field.attr("placeholder")                 );
+					if (
+						   ( !field_val                                    )
+						|| ( dv_placeholder && field_val == dv_placeholder )
+						|| ( placeholder    && field_val == placeholder    )
+					) {
 						return options.allrules[rules[i]].alertText;
+					}
 					break;
 				case "radio":
 				case "checkbox":
@@ -1482,6 +1502,10 @@
 			var dateParts = d.split("-");
 			if(dateParts==d)
 				dateParts = d.split("/");
+			if(dateParts==d) {
+				dateParts = d.split(".");
+				return new Date(dateParts[2], (dateParts[1] - 1), dateParts[0]);
+			}
 			return new Date(dateParts[0], (dateParts[1] - 1) ,dateParts[2]);
 		},
 		/**
@@ -1494,6 +1518,13 @@
 		* @param {Map} options user options
 		*/
 		 _showPrompt: function(field, promptText, type, ajaxed, options, ajaxform) {
+		 	//Check if we need to adjust what element to show the prompt on
+			if(field.data('jqv-prompt-at') instanceof jQuery ){
+				field = field.data('jqv-prompt-at');
+			} else if(field.data('jqv-prompt-at')) {
+				field = $(field.data('jqv-prompt-at'));
+			}
+
 			 var prompt = methods._getPrompt(field);
 			 // The ajax submit errors are not see has an error in the form,
 			 // When the form errors are returned, the engine see 2 bubbles, but those are ebing closed by the engine at the same time
@@ -1574,6 +1605,21 @@
 			// Add custom prompt class
 			if (options.addPromptClass)
 				prompt.addClass(options.addPromptClass);
+
+            // Add custom prompt class defined in element
+            var requiredOverride = field.attr('data-required-class');
+            if(requiredOverride !== undefined) {
+                prompt.addClass(requiredOverride);
+            } else {
+                if(options.prettySelect) {
+                    if($('#' + field.attr('id')).next().is('select')) {
+                        var prettyOverrideClass = $('#' + field.attr('id').substr(options.usePrefix.length).substring(options.useSuffix.length)).attr('data-required-class');
+                        if(prettyOverrideClass !== undefined) {
+                            prompt.addClass(prettyOverrideClass);
+                        }
+                    }
+                }
+            }
 
 			prompt.css({
 				"opacity": 0
@@ -1680,7 +1726,7 @@
 		_getPrompt: function(field) {
 				var formId = $(field).closest('form, .validationEngineContainer').attr('id');
 			var className = methods._getClassName(field.attr("id")) + "formError";
-				var match = $("." + methods._escapeExpression(className) + '.parentForm' + formId)[0];
+				var match = $("." + methods._escapeExpression(className) + '.parentForm' + methods._getClassName(formId))[0];
 			if (match)
 			return $(match);
 		},
@@ -1948,6 +1994,8 @@
 		focusFirstField:true,
 		// Show prompts, set to false to disable prompts
 		showPrompts: true,
+       // Should we attempt to validate non-visible input fields contained in the form? (Useful in cases of tabbed containers, e.g. jQuery-UI tabs)
+       validateNonVisibleFields: false,
 		// Opening box position, possible locations are: topLeft,
 		// topRight, bottomLeft, centerRight, bottomRight, inline
 		// inline gets inserted after the validated field or into an element specified in data-prompt-target
@@ -1994,8 +2042,8 @@
 		onSuccess: false,
 		onFailure: false,
 		validateAttribute: "class",
-		addSuccessCssClassToField: false,
-		addFailureCssClassToField: false,
+		addSuccessCssClassToField: "",
+		addFailureCssClassToField: "",
 		
 		// Auto-hide prompt
 		autoHidePrompt: false,
